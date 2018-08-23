@@ -94,9 +94,8 @@ func query(w http.ResponseWriter, r *http.Request) {
 func genomeExists(ctx context.Context, params queryParams) (bool, error) {
 	var w where
 	w.append(fmt.Sprintf("reference_name='%s'", params.RefName))
-	// Start is inclusive, End is exclusive.  Search exactly for coordinate.
-	w.append(fmt.Sprintf("v.start <= %d AND %d < v.end", params.Coord, *params.Coord+1))
-	w.append(fmt.Sprintf("reference_bases='%s'", params.Allele))
+	w.append(bqCoordinatesToWhereClause(params))
+	w.append(fmt.Sprintf("reference_bases='%s'", params.RefBases))
 
 	query := fmt.Sprintf(`
 		SELECT count(v.reference_name) as count
@@ -150,21 +149,20 @@ func validateServerConfig() error {
 }
 
 type queryParams struct {
-	RefName string `json:"chromosome"`
-	Allele  string `json:"allele"`
-	Coord   *int64 `json:"coordinate"`
+	RefName  string `json:"referenceName"`
+	RefBases string `json:"referenceBases"`
+	Start    *int64 `json:"start"`
+	End      *int64 `json:"end"`
 }
 
 func parseInput(r *http.Request) (queryParams, error) {
 	var params queryParams
 	if r.Method == "GET" {
-		params.RefName = r.FormValue("chromosome")
-		params.Allele = r.FormValue("allele")
-		coord, err := getFormValueInt(r, "coordinate")
-		if err != nil {
-			return queryParams{}, fmt.Errorf("parsing coordinate: %v", err)
+		params.RefName = r.FormValue("referenceName")
+		params.RefBases = r.FormValue("referenceBases")
+		if err := parseCoordinates(r, &params); err != nil {
+			return queryParams{}, fmt.Errorf("parsing referenceBases: %v", err)
 		}
-		params.Coord = coord
 	} else if r.Method == "POST" {
 		body, _ := ioutil.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &params); err != nil {
@@ -178,17 +176,40 @@ func parseInput(r *http.Request) (queryParams, error) {
 	return params, nil
 }
 
+func parseCoordinates(r *http.Request, params *queryParams) error {
+	start, err := getFormValueInt(r, "start")
+	if err != nil {
+		return fmt.Errorf("parsing start: %v", err)
+	}
+	params.Start = start
+
+	end, err := getFormValueInt(r, "end")
+	if err != nil {
+		return fmt.Errorf("parsing end: %v", err)
+	}
+	params.End = end
+	return nil
+}
+
 func validateInput(params queryParams) error {
 	if params.RefName == "" {
-		return errors.New("missing chromosome name")
+		return errors.New("missing referenceName")
 	}
-	if params.Allele == "" {
-		return errors.New("missing allele")
+	if params.RefBases == "" {
+		return errors.New("missing referenceBases")
 	}
-	if params.Coord == nil {
-		return errors.New("missing coordinate")
+
+	if err := validateCoordinates(params); err != nil {
+		return fmt.Errorf("validating coordinates: %v", err)
 	}
 	return nil
+}
+
+func validateCoordinates(params queryParams) error {
+	if params.Start != nil && (params.End != nil || params.RefBases != "") {
+		return nil
+	}
+	return errors.New("coordinate requirements not met")
 }
 
 func getFormValueInt(r *http.Request, key string) (*int64, error) {
@@ -201,6 +222,16 @@ func getFormValueInt(r *http.Request, key string) (*int64, error) {
 		return nil, fmt.Errorf("parsing int value: %v", err)
 	}
 	return &value, nil
+}
+
+func bqCoordinatesToWhereClause(params queryParams) string {
+	if params.Start != nil {
+		if params.End != nil {
+			return fmt.Sprintf("v.start = %d AND %d = v.end", *params.Start, *params.End)
+		}
+		return fmt.Sprintf("v.start = %d", *params.Start)
+	}
+	return ""
 }
 
 func writeResponse(w http.ResponseWriter, exists bool) error {
