@@ -18,10 +18,12 @@ package beacon
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
@@ -91,10 +93,10 @@ func query(w http.ResponseWriter, r *http.Request) {
 
 func genomeExists(ctx context.Context, params queryParams) (bool, error) {
 	var w where
-	w.append(fmt.Sprintf("reference_name='%s'", params.refName))
+	w.append(fmt.Sprintf("reference_name='%s'", params.RefName))
 	// Start is inclusive, End is exclusive.  Search exactly for coordinate.
-	w.append(fmt.Sprintf("v.start <= %d AND %d < v.end", params.coord, params.coord+1))
-	w.append(fmt.Sprintf("reference_bases='%s'", params.allele))
+	w.append(fmt.Sprintf("v.start <= %d AND %d < v.end", params.Coord, *params.Coord+1))
+	w.append(fmt.Sprintf("reference_bases='%s'", params.Allele))
 
 	query := fmt.Sprintf(`
 		SELECT count(v.reference_name) as count
@@ -148,25 +150,57 @@ func validateServerConfig() error {
 }
 
 type queryParams struct {
-	refName string
-	allele  string
-	coord   int64
+	RefName string `json:"chromosome"`
+	Allele  string `json:"allele"`
+	Coord   *int64 `json:"coordinate"`
 }
 
 func parseInput(r *http.Request) (queryParams, error) {
-	refName := r.FormValue("chromosome")
-	if refName == "" {
-		return queryParams{}, errors.New("missing chromosome name")
+	var params queryParams
+	if r.Method == "GET" {
+		params.RefName = r.FormValue("chromosome")
+		params.Allele = r.FormValue("allele")
+		coord, err := getFormValueInt(r, "coordinate")
+		if err != nil {
+			return queryParams{}, fmt.Errorf("parsing coordinate: %v", err)
+		}
+		params.Coord = coord
+	} else if r.Method == "POST" {
+		body, _ := ioutil.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &params); err != nil {
+			return queryParams{}, fmt.Errorf("decoding request body: %v", err)
+		}
 	}
-	allele := r.FormValue("allele")
-	if refName == "" {
-		return queryParams{}, errors.New("missing allele")
+
+	if err := validateInput(params); err != nil {
+		return queryParams{}, fmt.Errorf("validating input: %v", err)
 	}
-	coord, err := strconv.ParseInt(r.FormValue("coordinate"), 10, 64)
+	return params, nil
+}
+
+func validateInput(params queryParams) error {
+	if params.RefName == "" {
+		return errors.New("missing chromosome name")
+	}
+	if params.Allele == "" {
+		return errors.New("missing allele")
+	}
+	if params.Coord == nil {
+		return errors.New("missing coordinate")
+	}
+	return nil
+}
+
+func getFormValueInt(r *http.Request, key string) (*int64, error) {
+	str := r.FormValue(key)
+	if str == "" {
+		return nil, nil
+	}
+	value, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
-		return queryParams{}, fmt.Errorf("parsing coordinate: %v", err)
+		return nil, fmt.Errorf("parsing int value: %v", err)
 	}
-	return queryParams{refName, allele, coord}, nil
+	return &value, nil
 }
 
 func writeResponse(w http.ResponseWriter, exists bool) error {
