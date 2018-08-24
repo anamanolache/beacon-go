@@ -14,6 +14,10 @@ type Query struct {
 	RefBases string
 	Start    *int64
 	End      *int64
+	StartMin *int64
+	StartMax *int64
+	EndMin   *int64
+	EndMax   *int64
 }
 
 func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, error) {
@@ -58,10 +62,22 @@ func (q *Query) ValidateInput() error {
 }
 
 func (q *Query) validateCoordinates() error {
+	var precisePosition, imprecisePosition bool
 	if q.Start != nil && (q.End != nil || q.RefBases != "") {
-		return nil
+		precisePosition = true
 	}
-	return errors.New("coordinate requirements not met")
+	if q.StartMin != nil && q.StartMax != nil && q.EndMin != nil && q.EndMax != nil {
+		imprecisePosition = true
+	}
+
+	if precisePosition && imprecisePosition {
+		return errors.New("please query either precise or imprecise position")
+	} else if precisePosition || imprecisePosition {
+		return nil
+	} else if q.Start != nil && q.End != nil || q.StartMin != nil || q.StartMax != nil || q.EndMin != nil || q.EndMax != nil {
+		return errors.New("restrictions not met for provided coordinates")
+	}
+	return nil
 }
 
 func (q *Query) whereClause() string {
@@ -84,5 +100,10 @@ func (q *Query) bqCoordinatesToWhereClause() string {
 		}
 		return fmt.Sprintf("v.start = %d", *q.Start)
 	}
+
+	if q.StartMin != nil && q.StartMax != nil && q.EndMin != nil && q.EndMax != nil {
+		return fmt.Sprintf("%d <= v.start AND v.start <= %d AND %d <= v.end AND v.end <= %d", *q.StartMin, *q.StartMax, *q.EndMin, *q.EndMax)
+	}
+
 	return ""
 }

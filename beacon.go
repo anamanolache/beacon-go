@@ -120,6 +120,10 @@ func parseInput(r *http.Request) (*Query, error) {
 			RefBases string `json:"referenceBases"`
 			Start    *int64 `json:"start"`
 			End      *int64 `json:"end"`
+			StartMin *int64 `json:"startMin"`
+			StartMax *int64 ` json:"startMax"`
+			EndMin   *int64 `json:"endMin"`
+			EndMax   *int64 `json:"endMax"`
 		}
 		body, _ := ioutil.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &params); err != nil {
@@ -130,6 +134,10 @@ func parseInput(r *http.Request) (*Query, error) {
 			RefBases: params.RefBases,
 			Start:    params.Start,
 			End:      params.End,
+			StartMin: params.StartMin,
+			StartMax: params.StartMax,
+			EndMin:   params.EndMin,
+			EndMax:   params.EndMax,
 		}, nil
 	}
 	return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
@@ -147,6 +155,30 @@ func parseFormCoordinates(r *http.Request, params *Query) error {
 		return fmt.Errorf("parsing end: %v", err)
 	}
 	params.End = end
+
+	startMin, err := getFormValueInt(r, "startMin")
+	if err != nil {
+		return fmt.Errorf("parsing startMin: %v", err)
+	}
+	params.StartMin = startMin
+
+	startMax, err := getFormValueInt(r, "startMax")
+	if err != nil {
+		return fmt.Errorf("parsing startMax: %v", err)
+	}
+	params.StartMax = startMax
+
+	endMin, err := getFormValueInt(r, "endMin")
+	if err != nil {
+		return fmt.Errorf("parsing endMin: %v", err)
+	}
+	params.EndMin = endMin
+
+	endMax, err := getFormValueInt(r, "endMax")
+	if err != nil {
+		return fmt.Errorf("parsing endMax: %v", err)
+	}
+	params.EndMax = endMax
 	return nil
 }
 
