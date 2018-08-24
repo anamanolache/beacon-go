@@ -11,7 +11,7 @@ import (
 
 type Query struct {
 	RefName  string
-	Allele   string
+	RefBases string
 	Start    *int64
 	End      *int64
 	StartMin *int64
@@ -52,8 +52,8 @@ func (q *Query) ValidateInput() error {
 	if q.RefName == "" {
 		return errors.New("missing chromosome name")
 	}
-	if q.Allele == "" {
-		return errors.New("missing allele")
+	if q.RefBases == "" {
+		return errors.New("missing referenceBases")
 	}
 	if err := q.validateCoordinates(); err != nil {
 		return fmt.Errorf("validating coordinates: %v", err)
@@ -63,7 +63,7 @@ func (q *Query) ValidateInput() error {
 
 func (q *Query) validateCoordinates() error {
 	var precisePosition, imprecisePosition bool
-	if q.Start != nil && (q.End != nil || q.Allele != "") {
+	if q.Start != nil && (q.End != nil || q.RefBases != "") {
 		precisePosition = true
 	}
 	if q.StartMin != nil && q.StartMax != nil && q.EndMin != nil && q.EndMax != nil {
@@ -95,7 +95,7 @@ func (q *Query) whereClause() string {
 		}
 	}
 	simpleClause("reference_name", q.RefName)
-	simpleClause("reference_bases", q.Allele)
+	simpleClause("reference_bases", q.RefBases)
 	add(q.bqCoordinatesToWhereClause())
 	return strings.Join(clauses, " AND ")
 }
