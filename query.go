@@ -28,12 +28,11 @@ func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, e
 		LIMIT 1`,
 		fmt.Sprintf("`%s`", tableID),
 		q.whereClause())
-
-	bqClient, err := bigquery.NewClient(ctx, projectID)
+	bqclient, err := bigquery.NewClient(ctx, projectID)
 	if err != nil {
 		return false, fmt.Errorf("creating bigquery client: %v", err)
 	}
-	it, err := bqClient.Query(query).Read(ctx)
+	it, err := bqclient.Query(query).Read(ctx)
 	if err != nil {
 		return false, fmt.Errorf("querying database: %v", err)
 	}
@@ -49,12 +48,11 @@ func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, e
 
 func (q *Query) ValidateInput() error {
 	if q.RefName == "" {
-		return errors.New("missing referenceName")
+		return errors.New("missing chromosome name")
 	}
 	if q.Allele == "" {
 		return errors.New("missing allele")
 	}
-
 	if err := q.validateCoordinates(); err != nil {
 		return fmt.Errorf("validating coordinates: %v", err)
 	}
@@ -87,8 +85,13 @@ func (q *Query) whereClause() string {
 			clauses = append(clauses, clause)
 		}
 	}
-	add(fmt.Sprintf("reference_name='%s'", q.RefName))
-	add(fmt.Sprintf("reference_bases='%s'", q.Allele))
+	simpleClause := func(dbColumn, value string) {
+		if dbColumn != "" && value != "" {
+			add(fmt.Sprintf("%s='%s'", dbColumn, value))
+		}
+	}
+	simpleClause("reference_name", q.RefName)
+	simpleClause("reference_bases", q.Allele)
 	add(q.bqCoordinatesToWhereClause())
 	return strings.Join(clauses, " AND ")
 }
@@ -104,6 +107,5 @@ func (q *Query) bqCoordinatesToWhereClause() string {
 	if q.StartMin != nil && q.StartMax != nil && q.EndMin != nil && q.EndMax != nil {
 		return fmt.Sprintf("%d <= v.start AND v.start <= %d AND %d <= v.end AND v.end <= %d", *q.StartMin, *q.StartMax, *q.EndMin, *q.EndMax)
 	}
-
 	return ""
 }
