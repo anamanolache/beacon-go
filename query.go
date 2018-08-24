@@ -62,7 +62,10 @@ func (q *Query) ValidateInput() error {
 	if !basesRegex.MatchString(q.ReferenceBases) {
 		return errors.New("invalid value for reference bases")
 	}
-	if q.AlternateBases != "" && !basesRegex.MatchString(q.AlternateBases) {
+	if q.AlternateBases == "" {
+		return errors.New("missing alternate bases")
+	}
+	if !basesRegex.MatchString(q.AlternateBases) {
 		return errors.New("invalid value for alternate bases")
 	}
 	if err := q.validateCoordinates(); err != nil {
