@@ -70,9 +70,11 @@ func (q *Query) validateCoordinates() error {
 
 	if precisePosition && imprecisePosition {
 		return errors.New("please query either precise or imprecise position")
-	} else if precisePosition || imprecisePosition {
+	}
+	if precisePosition || imprecisePosition {
 		return nil
-	} else if q.Start != nil && q.End != nil || q.StartMin != nil || q.StartMax != nil || q.EndMin != nil || q.EndMax != nil {
+	}
+	if q.Start != nil && q.End != nil || q.StartMin != nil || q.StartMax != nil || q.EndMin != nil || q.EndMax != nil {
 		return errors.New("restrictions not met for provided coordinates")
 	}
 	return nil
