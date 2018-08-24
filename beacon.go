@@ -18,7 +18,6 @@ package beacon
 
 import (
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -103,21 +102,17 @@ func query(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := query.ValidateInput(); err != nil {
-		http.Error(w, fmt.Sprintf("validating input: %v", err), http.StatusBadRequest)
+		writeError(w, *request, http.StatusBadRequest, fmt.Sprintf("validating input: %v", err))
 		return
 	}
 
 	ctx := appengine.NewContext(r)
 	exists, err := query.Execute(ctx, projectID, beacon.Datasets)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("computing result: %v", err), http.StatusInternalServerError)
+		writeError(w, *request, http.StatusInternalServerError, fmt.Sprintf("computing result: %v", err))
 		return
 	}
-
-	if err := writeResponse(w, exists); err != nil {
-		http.Error(w, fmt.Sprintf("writing response: %v", err), http.StatusInternalServerError)
-		return
-	}
+	writeResponse(w, *request, exists)
 }
 
 func validateServerConfig() error {
@@ -214,19 +209,42 @@ func getFormValueInt(r *http.Request, key string) (*int64, error) {
 	return &value, nil
 }
 
-func writeResponse(w http.ResponseWriter, exists bool) error {
-	type beaconResponse struct {
-		XMLName struct{} `xml:"BEACONResponse"`
-		Exists  bool     `xml:"exists"`
-	}
-	var resp beaconResponse
-	resp.Exists = exists
+type alleleResponse struct {
+	BeaconId   string        `json:"beaconId"`
+	ApiVersion string        `json:"apiVersion"`
+	Request    alleleRequest `json:"request"`
+	Exists     *bool         `json:"exists"`
+	Error      *beaconError  `json:"error"`
+}
 
-	w.Header().Set("Content-Type", "application/xml")
-	enc := xml.NewEncoder(w)
-	enc.Indent("", "  ")
-	if err := enc.Encode(resp); err != nil {
-		return fmt.Errorf("serializing response: %v", err)
+type beaconError struct {
+	Code    string `json:"errorCode"`
+	Message string `json:"errorMessage"`
+}
+
+func writeError(w http.ResponseWriter, req alleleRequest, code int, message string) {
+	write(w, req, nil, &beaconError{
+		Code:    strconv.Itoa(code),
+		Message: message,
+	})
+}
+
+func writeResponse(w http.ResponseWriter, req alleleRequest, exists bool) {
+	write(w, req, &exists, nil)
+}
+
+func write(w http.ResponseWriter, req alleleRequest, exists *bool, beaconErr *beaconError) {
+	response := alleleResponse{
+		BeaconId:   beacon.ID,
+		ApiVersion: beacon.ApiVersion,
+		Request:    req,
+		Exists:     exists,
+		Error:      beaconErr,
 	}
-	return nil
+	w.Header().Set("Content-Type", "application/json")
+	buffer, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("writing response: %v", err), http.StatusInternalServerError)
+	}
+	w.Write(buffer)
 }
