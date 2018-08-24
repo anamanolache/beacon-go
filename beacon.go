@@ -107,17 +107,17 @@ func validateServerConfig() error {
 
 func parseInput(r *http.Request) (*Query, error) {
 	if r.Method == "GET" {
-		var q Query
-		q.RefName = r.FormValue("chromosome")
-		q.Allele = r.FormValue("allele")
+		var query Query
+		query.RefName = r.FormValue("chromosome")
+		query.Allele = r.FormValue("allele")
 
 		coord, err := getFormValueInt(r, "coordinate")
 		if err != nil {
 			return nil, fmt.Errorf("parsing coordinate: %v", err)
 		}
-		q.Coord = coord
+		query.Coord = coord
 
-		return &q, nil
+		return &query, nil
 	} else if r.Method == "POST" {
 		var params struct {
 			RefName string `json:"chromosome"`
