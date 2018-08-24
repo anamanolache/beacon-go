@@ -108,16 +108,16 @@ func validateServerConfig() error {
 func parseInput(r *http.Request) (*Query, error) {
 	if r.Method == "GET" {
 		var query Query
-		query.RefName = r.FormValue("referenceName")
-		query.RefBases = r.FormValue("referenceBases")
+		query.RefName = r.FormValue("chromosome")
+		query.Allele = r.FormValue("allele")
 		if err := parseFormCoordinates(r, &query); err != nil {
 			return nil, fmt.Errorf("parsing referenceBases: %v", err)
 		}
 		return &query, nil
 	} else if r.Method == "POST" {
 		var params struct {
-			RefName  string `json:"referenceName"`
-			RefBases string `json:"referenceBases"`
+			RefName  string `json:"chromosome"`
+			Allele   string `json:"allele"`
 			Start    *int64 `json:"start"`
 			End      *int64 `json:"end"`
 			StartMin *int64 `json:"startMin"`
@@ -131,7 +131,7 @@ func parseInput(r *http.Request) (*Query, error) {
 		}
 		return &Query{
 			RefName:  params.RefName,
-			RefBases: params.RefBases,
+			Allele:   params.Allele,
 			Start:    params.Start,
 			End:      params.End,
 			StartMin: params.StartMin,
