@@ -21,7 +21,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -31,23 +30,34 @@ import (
 )
 
 type beaconConfig struct {
-	ApiVersion string
-	ProjectID  string
-	TableID    string
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	ApiVersion   string             `json:"apiVersion"`
+	Organization beaconOrganization `json:"organization"`
+	Datasets     string             `json:"datasets"`
+}
+
+type beaconOrganization struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 const (
-	apiVersionKey = "BEACON_API_VERSION"
-	projectKey    = "GOOGLE_CLOUD_PROJECT"
-	bqTableKey    = "GOOGLE_BIGQUERY_TABLE"
+	projectKey = "GOOGLE_CLOUD_PROJECT"
+	bqTableKey = "GOOGLE_BIGQUERY_TABLE"
 )
 
 var (
-	aboutTemplate = template.Must(template.ParseFiles("about.xml"))
-	config        = beaconConfig{
-		ApiVersion: os.Getenv(apiVersionKey),
-		ProjectID:  os.Getenv(projectKey),
-		TableID:    os.Getenv(bqTableKey),
+	projectID = os.Getenv(projectKey)
+	beacon    = beaconConfig{
+		ID:         os.Getenv("BEACON_ID"),
+		Name:       os.Getenv("BEACON_NAME"),
+		ApiVersion: os.Getenv("BEACON_API_VERSION"),
+		Organization: beaconOrganization{
+			ID:   os.Getenv("ORGANIZATION_ID"),
+			Name: os.Getenv("ORGANIZATION_NAME"),
+		},
+		Datasets: os.Getenv(bqTableKey),
 	}
 )
 
@@ -61,8 +71,12 @@ func aboutBeacon(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("HTTP method %s not supported", r.Method), http.StatusBadRequest)
 		return
 	}
-	w.Header().Set("Content-Type", "application/xml")
-	aboutTemplate.Execute(w, config)
+	w.Header().Set("Content-Type", "application/json")
+	response, err := json.Marshal(beacon)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("writing response: %v", err), http.StatusInternalServerError)
+	}
+	w.Write(response)
 }
 
 func query(w http.ResponseWriter, r *http.Request) {
@@ -71,10 +85,21 @@ func query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query, err := parseInput(r)
+	request, err := parseInput(r)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("parsing input: %v", err), http.StatusBadRequest)
 		return
+	}
+	query := &Query{
+		ReferenceName:  request.ReferenceName,
+		ReferenceBases: request.ReferenceBases,
+		AlternateBases: request.AlternateBases,
+		Start:          request.Start,
+		End:            request.End,
+		StartMin:       request.StartMin,
+		StartMax:       request.StartMax,
+		EndMin:         request.EndMin,
+		EndMax:         request.EndMax,
 	}
 
 	if err := query.ValidateInput(); err != nil {
@@ -83,7 +108,7 @@ func query(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := appengine.NewContext(r)
-	exists, err := query.Execute(ctx, config.ProjectID, config.TableID)
+	exists, err := query.Execute(ctx, projectID, beacon.Datasets)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("computing result: %v", err), http.StatusInternalServerError)
 		return
@@ -96,18 +121,30 @@ func query(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateServerConfig() error {
-	if config.ProjectID == "" {
+	if projectID == "" {
 		return fmt.Errorf("%s must be specified", projectKey)
 	}
-	if config.TableID == "" {
+	if beacon.Datasets == "" {
 		return fmt.Errorf("%s must be specified", bqTableKey)
 	}
 	return nil
 }
 
-func parseInput(r *http.Request) (*Query, error) {
+type alleleRequest struct {
+	ReferenceName  string `json:"referenceName"`
+	ReferenceBases string `json:"referenceBases"`
+	AlternateBases string `json:"alternateBases"`
+	Start          *int64 `json:"start"`
+	End            *int64 `json:"end"`
+	StartMin       *int64 `json:"startMin"`
+	StartMax       *int64 `json:"startMax"`
+	EndMin         *int64 `json:"endMin"`
+	EndMax         *int64 `json:"endMax"`
+}
+
+func parseInput(r *http.Request) (*alleleRequest, error) {
 	if r.Method == "GET" {
-		var query Query
+		var query alleleRequest
 		query.ReferenceName = r.FormValue("referenceName")
 		query.ReferenceBases = r.FormValue("referenceBases")
 		query.AlternateBases = r.FormValue("alternateBases")
@@ -116,37 +153,17 @@ func parseInput(r *http.Request) (*Query, error) {
 		}
 		return &query, nil
 	} else if r.Method == "POST" {
-		var params struct {
-			ReferenceName  string `json:"referenceName"`
-			ReferenceBases string `json:"referenceBases"`
-			AlternateBases string `json:"alternateBases"`
-			Start          *int64 `json:"start"`
-			End            *int64 `json:"end"`
-			StartMin       *int64 `json:"startMin"`
-			StartMax       *int64 ` json:"startMax"`
-			EndMin         *int64 `json:"endMin"`
-			EndMax         *int64 `json:"endMax"`
-		}
+		var params alleleRequest
 		body, _ := ioutil.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &params); err != nil {
 			return nil, fmt.Errorf("decoding request body: %v", err)
 		}
-		return &Query{
-			ReferenceName:  params.ReferenceName,
-			ReferenceBases: params.ReferenceBases,
-			AlternateBases: params.AlternateBases,
-			Start:          params.Start,
-			End:            params.End,
-			StartMin:       params.StartMin,
-			StartMax:       params.StartMax,
-			EndMin:         params.EndMin,
-			EndMax:         params.EndMax,
-		}, nil
+		return &params, nil
 	}
 	return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
 }
 
-func parseFormCoordinates(r *http.Request, params *Query) error {
+func parseFormCoordinates(r *http.Request, params *alleleRequest) error {
 	start, err := getFormValueInt(r, "start")
 	if err != nil {
 		return fmt.Errorf("parsing start: %v", err)

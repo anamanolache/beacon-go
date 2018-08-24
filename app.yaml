@@ -20,6 +20,11 @@ handlers:
   script: _go_app
 
 env_variables:
+  BEACON_ID: google-beacon-go
+  BEACON_NAME: Google Beacon API
   BEACON_API_VERSION: 0.0.1
+  ORGANIZATION_ID: google
+  ORGANIZATION_NAME: Google LLC
+
 #  GOOGLE_CLOUD_PROJECT: change-to-your-project-id
 #  GOOGLE_BIGQUERY_TABLE: genomics-public-data.platinum_genomes.variants
