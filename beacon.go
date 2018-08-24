@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Google Inc.
+ * Copyright (C) 2015 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License. You may obtain a copy of the License at
@@ -17,29 +17,28 @@
 package beacon
 
 import (
-	"context"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
 
-	"cloud.google.com/go/bigquery"
+	"encoding/json"
+	"io/ioutil"
+
 	"google.golang.org/appengine"
 )
 
 type beaconConfig struct {
 	ApiVersion string
 	ProjectID  string
-	TableId    string
+	TableID    string
 }
 
 const (
-	apiVersionKey = "VERSION"
+	apiVersionKey = "BEACON_API_VERSION"
 	projectKey    = "GOOGLE_CLOUD_PROJECT"
 	bqTableKey    = "GOOGLE_BIGQUERY_TABLE"
 )
@@ -49,7 +48,7 @@ var (
 	config        = beaconConfig{
 		ApiVersion: os.Getenv(apiVersionKey),
 		ProjectID:  os.Getenv(projectKey),
-		TableId:    os.Getenv(bqTableKey),
+		TableID:    os.Getenv(bqTableKey),
 	}
 )
 
@@ -60,6 +59,7 @@ func init() {
 
 func aboutBeacon(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
+		http.Error(w, fmt.Sprintf("HTTP method %s not supported", r.Method), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml")
@@ -72,111 +72,71 @@ func query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params, err := parseInput(r)
+	query, err := parseInput(r)
 	if err != nil {
+		http.Error(w, fmt.Sprintf("parsing input: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if err := query.validateInput(); err != nil {
 		http.Error(w, fmt.Sprintf("validating input: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	ctx := appengine.NewContext(r)
-	exists, err := genomeExists(ctx, params)
+	exists, err := query.Execute(ctx)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("computing result: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	if err := writeResponse(w, exists); err != nil {
-		http.Error(w, fmt.Sprintf("validating server configuration: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("writing response: %v", err), http.StatusInternalServerError)
 		return
 	}
-}
-
-func genomeExists(ctx context.Context, params queryParams) (bool, error) {
-	var w where
-	w.append(fmt.Sprintf("reference_name='%s'", params.RefName))
-	w.append(bqCoordinatesToWhereClause(params))
-	w.append(fmt.Sprintf("reference_bases='%s'", params.RefBases))
-
-	query := fmt.Sprintf(`
-		SELECT count(v.reference_name) as count
-		FROM %s as v
-		WHERE %s
-		LIMIT 1`,
-		fmt.Sprintf("`%s`", config.TableId),
-		w.clause)
-
-	bqclient, err := bigquery.NewClient(ctx, config.ProjectID)
-	if err != nil {
-		return false, fmt.Errorf("creating bigquery client: %v", err)
-	}
-	it, err := bqclient.Query(query).Read(ctx)
-	if err != nil {
-		return false, fmt.Errorf("querying database: %v", err)
-	}
-
-	var result struct {
-		Count int
-	}
-	if err := it.Next(&result); err != nil {
-		return false, fmt.Errorf("reading query result: %v", err)
-	}
-	return result.Count > 0, nil
-}
-
-type where struct {
-	clause string
-}
-
-func (w *where) append(statement string) {
-	if statement == "" {
-		return
-	}
-	var conj string
-	if len(w.clause) > 0 {
-		conj = " AND "
-	}
-	w.clause = fmt.Sprintf("%s%s(%s)", w.clause, conj, statement)
 }
 
 func validateServerConfig() error {
 	if config.ProjectID == "" {
 		return fmt.Errorf("%s must be specified", projectKey)
 	}
-	if config.TableId == "" {
+	if config.TableID == "" {
 		return fmt.Errorf("%s must be specified", bqTableKey)
 	}
 	return nil
 }
 
-type queryParams struct {
-	RefName  string `json:"referenceName"`
-	RefBases string `json:"referenceBases"`
-	Start    *int64 `json:"start"`
-	End      *int64 `json:"end"`
-}
-
-func parseInput(r *http.Request) (queryParams, error) {
-	var params queryParams
+func parseInput(r *http.Request) (*Query, error) {
 	if r.Method == "GET" {
-		params.RefName = r.FormValue("referenceName")
-		params.RefBases = r.FormValue("referenceBases")
-		if err := parseCoordinates(r, &params); err != nil {
-			return queryParams{}, fmt.Errorf("parsing referenceBases: %v", err)
+		var query Query
+		query.RefName = r.FormValue("referenceName")
+		query.RefBases = r.FormValue("referenceBases")
+		if err := parseFormCoordinates(r, &query); err != nil {
+			return nil, fmt.Errorf("parsing referenceBases: %v", err)
 		}
+		return &query, nil
 	} else if r.Method == "POST" {
+		var params struct {
+			RefName  string `json:"referenceName"`
+			RefBases string `json:"referenceBases"`
+			Start    *int64 `json:"start"`
+			End      *int64 `json:"end"`
+		}
 		body, _ := ioutil.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &params); err != nil {
-			return queryParams{}, fmt.Errorf("decoding request body: %v", err)
+			return nil, fmt.Errorf("decoding request body: %v", err)
 		}
+		return &Query{
+			RefName:  params.RefName,
+			RefBases: params.RefBases,
+			Start:    params.Start,
+			End:      params.End,
+		}, nil
 	}
-
-	if err := validateInput(params); err != nil {
-		return queryParams{}, fmt.Errorf("validating input: %v", err)
-	}
-	return params, nil
+	return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
 }
 
-func parseCoordinates(r *http.Request, params *queryParams) error {
+func parseFormCoordinates(r *http.Request, params *Query) error {
 	start, err := getFormValueInt(r, "start")
 	if err != nil {
 		return fmt.Errorf("parsing start: %v", err)
@@ -191,27 +151,6 @@ func parseCoordinates(r *http.Request, params *queryParams) error {
 	return nil
 }
 
-func validateInput(params queryParams) error {
-	if params.RefName == "" {
-		return errors.New("missing referenceName")
-	}
-	if params.RefBases == "" {
-		return errors.New("missing referenceBases")
-	}
-
-	if err := validateCoordinates(params); err != nil {
-		return fmt.Errorf("validating coordinates: %v", err)
-	}
-	return nil
-}
-
-func validateCoordinates(params queryParams) error {
-	if params.Start != nil && (params.End != nil || params.RefBases != "") {
-		return nil
-	}
-	return errors.New("coordinate requirements not met")
-}
-
 func getFormValueInt(r *http.Request, key string) (*int64, error) {
 	str := r.FormValue(key)
 	if str == "" {
@@ -222,16 +161,6 @@ func getFormValueInt(r *http.Request, key string) (*int64, error) {
 		return nil, fmt.Errorf("parsing int value: %v", err)
 	}
 	return &value, nil
-}
-
-func bqCoordinatesToWhereClause(params queryParams) string {
-	if params.Start != nil {
-		if params.End != nil {
-			return fmt.Sprintf("v.start = %d AND %d = v.end", *params.Start, *params.End)
-		}
-		return fmt.Sprintf("v.start = %d", *params.Start)
-	}
-	return ""
 }
 
 func writeResponse(w http.ResponseWriter, exists bool) error {
