@@ -16,16 +16,16 @@ type Query struct {
 	End      *int64
 }
 
-func (q *Query) Execute(ctx context.Context) (bool, error) {
+func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, error) {
 	query := fmt.Sprintf(`
 		SELECT count(v.reference_name) as count
 		FROM %s as v
 		WHERE %s
 		LIMIT 1`,
-		fmt.Sprintf("`%s`", config.TableID),
+		fmt.Sprintf("`%s`", tableID),
 		q.whereClause())
 
-	bqClient, err := bigquery.NewClient(ctx, config.ProjectID)
+	bqClient, err := bigquery.NewClient(ctx, projectID)
 	if err != nil {
 		return false, fmt.Errorf("creating bigquery client: %v", err)
 	}
@@ -43,7 +43,7 @@ func (q *Query) Execute(ctx context.Context) (bool, error) {
 	return result.Count > 0, nil
 }
 
-func (q *Query) validateInput() error {
+func (q *Query) ValidateInput() error {
 	if q.RefName == "" {
 		return errors.New("missing referenceName")
 	}

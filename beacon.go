@@ -17,16 +17,15 @@
 package beacon
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
-
-	"encoding/json"
-	"io/ioutil"
 
 	"google.golang.org/appengine"
 )
@@ -78,13 +77,13 @@ func query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := query.validateInput(); err != nil {
+	if err := query.ValidateInput(); err != nil {
 		http.Error(w, fmt.Sprintf("validating input: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	ctx := appengine.NewContext(r)
-	exists, err := query.Execute(ctx)
+	exists, err := query.Execute(ctx, config.ProjectID, config.TableID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("computing result: %v", err), http.StatusInternalServerError)
 		return
