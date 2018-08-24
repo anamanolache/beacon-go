@@ -17,7 +17,6 @@
 package beacon
 
 import (
-	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -28,7 +27,6 @@ import (
 	"os"
 	"strconv"
 
-	"cloud.google.com/go/bigquery"
 	"google.golang.org/appengine"
 )
 
@@ -73,70 +71,28 @@ func query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params, err := parseInput(r)
+	query, err := parseInput(r)
 	if err != nil {
+		http.Error(w, fmt.Sprintf("parsing input: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if err := query.ValidateInput(); err != nil {
 		http.Error(w, fmt.Sprintf("validating input: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	ctx := appengine.NewContext(r)
-	exists, err := genomeExists(ctx, params)
+	exists, err := query.Execute(ctx, config.ProjectID, config.TableID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("computing result: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	if err := writeResponse(w, exists); err != nil {
-		http.Error(w, fmt.Sprintf("validating server configuration: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("writing response: %v", err), http.StatusInternalServerError)
 		return
 	}
-}
-
-func genomeExists(ctx context.Context, params queryParams) (bool, error) {
-	var w where
-	w.append(fmt.Sprintf("reference_name='%s'", params.RefName))
-	// Start is inclusive, End is exclusive.  Search exactly for coordinate.
-	w.append(fmt.Sprintf("v.start <= %d AND %d < v.end", params.Coord, *params.Coord+1))
-	w.append(fmt.Sprintf("reference_bases='%s'", params.Allele))
-
-	query := fmt.Sprintf(`
-		SELECT count(v.reference_name) as count
-		FROM %s as v
-		WHERE %s
-		LIMIT 1`,
-		fmt.Sprintf("`%s`", config.TableID),
-		w.clause)
-	bqclient, err := bigquery.NewClient(ctx, config.ProjectID)
-	if err != nil {
-		return false, fmt.Errorf("creating bigquery client: %v", err)
-	}
-	it, err := bqclient.Query(query).Read(ctx)
-	if err != nil {
-		return false, fmt.Errorf("querying database: %v", err)
-	}
-
-	var result struct {
-		Count int
-	}
-	if err := it.Next(&result); err != nil {
-		return false, fmt.Errorf("reading query result: %v", err)
-	}
-	return result.Count > 0, nil
-}
-
-type where struct {
-	clause string
-}
-
-func (w *where) append(statement string) {
-	if statement == "" {
-		return
-	}
-	var conj string
-	if len(w.clause) > 0 {
-		conj = " AND "
-	}
-	w.clause = fmt.Sprintf("%s%s(%s)", w.clause, conj, statement)
 }
 
 func validateServerConfig() error {
@@ -149,46 +105,36 @@ func validateServerConfig() error {
 	return nil
 }
 
-type queryParams struct {
-	RefName string `json:"chromosome"`
-	Allele  string `json:"allele"`
-	Coord   *int64 `json:"coordinate"`
-}
-
-func parseInput(r *http.Request) (queryParams, error) {
-	var params queryParams
+func parseInput(r *http.Request) (*Query, error) {
 	if r.Method == "GET" {
-		params.RefName = r.FormValue("chromosome")
-		params.Allele = r.FormValue("allele")
+		var q Query
+		q.RefName = r.FormValue("chromosome")
+		q.Allele = r.FormValue("allele")
+
 		coord, err := getFormValueInt(r, "coordinate")
 		if err != nil {
-			return queryParams{}, fmt.Errorf("parsing coordinate: %v", err)
+			return nil, fmt.Errorf("parsing coordinate: %v", err)
 		}
-		params.Coord = coord
+		q.Coord = coord
+
+		return &q, nil
 	} else if r.Method == "POST" {
+		var params struct {
+			RefName string `json:"chromosome"`
+			Allele  string `json:"allele"`
+			Coord   *int64 `json:"coordinate"`
+		}
 		body, _ := ioutil.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &params); err != nil {
-			return queryParams{}, fmt.Errorf("decoding request body: %v", err)
+			return nil, fmt.Errorf("decoding request body: %v", err)
 		}
+		return &Query{
+			RefName: params.RefName,
+			Allele:  params.Allele,
+			Coord:   params.Coord,
+		}, nil
 	}
-
-	if err := validateInput(params); err != nil {
-		return queryParams{}, fmt.Errorf("validating input: %v", err)
-	}
-	return params, nil
-}
-
-func validateInput(params queryParams) error {
-	if params.RefName == "" {
-		return errors.New("missing chromosome name")
-	}
-	if params.Allele == "" {
-		return errors.New("missing allele")
-	}
-	if params.Coord == nil {
-		return errors.New("missing coordinate")
-	}
-	return nil
+	return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
 }
 
 func getFormValueInt(r *http.Request, key string) (*int64, error) {
