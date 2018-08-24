@@ -4,20 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
 )
 
+var basesRegex = regexp.MustCompile(`^([ACGT]+|N)$`)
+
 type Query struct {
-	RefName  string
-	RefBases string
-	Start    *int64
-	End      *int64
-	StartMin *int64
-	StartMax *int64
-	EndMin   *int64
-	EndMax   *int64
+	ReferenceName  string
+	ReferenceBases string
+	AlternateBases string
+	Start          *int64
+	End            *int64
+	StartMin       *int64
+	StartMax       *int64
+	EndMin         *int64
+	EndMax         *int64
 }
 
 func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, error) {
@@ -49,11 +53,17 @@ func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, e
 }
 
 func (q *Query) ValidateInput() error {
-	if q.RefName == "" {
-		return errors.New("missing chromosome name")
+	if q.ReferenceName == "" {
+		return errors.New("missing reference name")
 	}
-	if q.RefBases == "" {
-		return errors.New("missing referenceBases")
+	if q.ReferenceBases == "" {
+		return errors.New("missing reference bases")
+	}
+	if !basesRegex.MatchString(q.ReferenceBases) {
+		return errors.New("invalid value for reference bases")
+	}
+	if q.AlternateBases != "" && !basesRegex.MatchString(q.AlternateBases) {
+		return errors.New("invalid value for alternate bases")
 	}
 	if err := q.validateCoordinates(); err != nil {
 		return fmt.Errorf("validating coordinates: %v", err)
@@ -63,7 +73,7 @@ func (q *Query) ValidateInput() error {
 
 func (q *Query) validateCoordinates() error {
 	var precisePosition, imprecisePosition bool
-	if q.Start != nil && (q.End != nil || q.RefBases != "") {
+	if q.Start != nil && (q.End != nil || q.ReferenceBases != "") {
 		precisePosition = true
 	}
 	if q.StartMin != nil && q.StartMax != nil && q.EndMin != nil && q.EndMax != nil {
@@ -94,8 +104,9 @@ func (q *Query) whereClause() string {
 			add(fmt.Sprintf("%s='%s'", dbColumn, value))
 		}
 	}
-	simpleClause("reference_name", q.RefName)
-	simpleClause("reference_bases", q.RefBases)
+	simpleClause("reference_name", q.ReferenceName)
+	simpleClause("reference_bases", q.ReferenceBases)
+	simpleClause("alternate_bases", q.AlternateBases)
 	add(q.bqCoordinatesToWhereClause())
 	return strings.Join(clauses, " AND ")
 }
