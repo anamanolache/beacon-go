@@ -12,8 +12,7 @@
  * the License.
  */
 
-// Package beacon implements a GA4GH Beacon (http://ga4gh.org/#/beacon) backed
-// by the Google Genomics Variants service search API.
+// Package beacon implements a GA4GH Beacon (http://ga4gh.org/#/beacon).
 package beacon
 
 import (
@@ -25,6 +24,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/googlegenomics/beacon-go/internal/query"
 	"google.golang.org/appengine"
 )
 
@@ -60,12 +60,7 @@ var (
 	}
 )
 
-func init() {
-	http.HandleFunc("/", aboutBeacon)
-	http.HandleFunc("/query", query)
-}
-
-func aboutBeacon(w http.ResponseWriter, r *http.Request) {
+func AboutBeacon(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, fmt.Sprintf("HTTP method %s not supported", r.Method), http.StatusBadRequest)
 		return
@@ -78,7 +73,7 @@ func aboutBeacon(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 
-func query(w http.ResponseWriter, r *http.Request) {
+func ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	if err := validateServerConfig(); err != nil {
 		http.Error(w, fmt.Sprintf("validating server configuration: %v", err), http.StatusInternalServerError)
 		return
@@ -89,7 +84,7 @@ func query(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("parsing input: %v", err), http.StatusBadRequest)
 		return
 	}
-	query := &Query{
+	q := &query.Query{
 		ReferenceName:  request.ReferenceName,
 		ReferenceBases: request.ReferenceBases,
 		AlternateBases: request.AlternateBases,
@@ -101,13 +96,13 @@ func query(w http.ResponseWriter, r *http.Request) {
 		EndMax:         request.EndMax,
 	}
 
-	if err := query.ValidateInput(); err != nil {
+	if err := q.ValidateInput(); err != nil {
 		writeError(w, *request, http.StatusBadRequest, fmt.Sprintf("validating input: %v", err))
 		return
 	}
 
 	ctx := appengine.NewContext(r)
-	exists, err := query.Execute(ctx, projectID, beacon.Datasets)
+	exists, err := q.Execute(ctx, projectID, beacon.Datasets)
 	if err != nil {
 		writeError(w, *request, http.StatusInternalServerError, fmt.Sprintf("computing result: %v", err))
 		return
