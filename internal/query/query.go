@@ -77,10 +77,7 @@ func (q *Query) ValidateInput() error {
 	if !basesRegex.MatchString(q.ReferenceBases) {
 		return errors.New("invalid value for reference bases")
 	}
-	if q.AlternateBases == "" {
-		return errors.New("missing alternate bases")
-	}
-	if !basesRegex.MatchString(q.AlternateBases) {
+	if q.AlternateBases != "" && !basesRegex.MatchString(q.AlternateBases) {
 		return errors.New("invalid value for alternate bases")
 	}
 	if err := q.validateCoordinates(); err != nil {
@@ -124,7 +121,9 @@ func (q *Query) whereClause() string {
 	}
 	simpleClause("reference_name", q.ReferenceName)
 	simpleClause("reference_bases", q.ReferenceBases)
-	simpleClause("alternate_bases", q.AlternateBases)
+	if q.AlternateBases != "" {
+		add(fmt.Sprintf("(SELECT count(*) FROM UNNEST(alternate_bases) AS alt WHERE alt IN ('%s') ) > 0", q.AlternateBases))
+	}
 	add(q.bqCoordinatesToWhereClause())
 	return strings.Join(clauses, " AND ")
 }
