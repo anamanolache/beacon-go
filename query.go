@@ -12,18 +12,29 @@ import (
 
 var basesRegex = regexp.MustCompile(`^([ACGT]+|N)$`)
 
+// Query holds information about a single query against a Beacon.
 type Query struct {
-	ReferenceName  string
+	// ReferenceName - the chromosome reference name.
+	ReferenceName string
+	// ReferenceBases - the allele reference base.
 	ReferenceBases string
+	// AlternateBases - the allele alternate bases.
 	AlternateBases string
-	Start          *int64
-	End            *int64
-	StartMin       *int64
-	StartMax       *int64
-	EndMin         *int64
-	EndMax         *int64
+	// Start - matches the alleles that start at this position.
+	Start *int64
+	// End - matches the alleles that end at this position.
+	End *int64
+	// StartMin - matches the alleles that start at this position or higher.
+	StartMin *int64
+	// StartMax - matches the alleles that start at this position or lower.
+	StartMax *int64
+	// EndMin - matches the alleles that end at this position or higher.
+	EndMin *int64
+	// EndMax - matches the alleles that end at this position or lower.
+	EndMax *int64
 }
 
+// Execute queries the allele database with the Query parameters.
 func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, error) {
 	query := fmt.Sprintf(`
 		SELECT count(v.reference_name) as count
@@ -34,11 +45,11 @@ func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, e
 		q.whereClause(),
 	)
 
-	bqClient, err := bigquery.NewClient(ctx, projectID)
+	client, err := bigquery.NewClient(ctx, projectID)
 	if err != nil {
 		return false, fmt.Errorf("creating bigquery client: %v", err)
 	}
-	it, err := bqClient.Query(query).Read(ctx)
+	it, err := client.Query(query).Read(ctx)
 	if err != nil {
 		return false, fmt.Errorf("querying database: %v", err)
 	}
@@ -52,6 +63,7 @@ func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, e
 	return result.Count > 0, nil
 }
 
+// ValidateInput validates the Query parameters meet the ga4gh beacon api requirements.
 func (q *Query) ValidateInput() error {
 	if q.ReferenceName == "" {
 		return errors.New("missing reference name")
@@ -94,35 +106,33 @@ func (q *Query) validateCoordinates() error {
 
 func (q *Query) whereClause() string {
 	var clauses []string
-	add := func(clause string) {
-		if clause != "" {
-			clauses = append(clauses, clause)
-		}
+	add := func(format string, args ...interface{}) {
+		clauses = append(clauses, fmt.Sprintf(format, args...))
 	}
 	simpleClause := func(dbColumn, value string) {
 		if dbColumn != "" && value != "" {
-			add(fmt.Sprintf("%s='%s'", dbColumn, value))
+			add("%s='%s'", dbColumn, value)
 		}
 	}
+
 	simpleClause("reference_name", q.ReferenceName)
 	simpleClause("reference_bases", q.ReferenceBases)
 	if q.AlternateBases != "" {
 		add(fmt.Sprintf("(SELECT count(*) FROM UNNEST(alternate_bases) AS alt WHERE alt IN ('%s') ) > 0", q.AlternateBases))
 	}
-	add(q.bqCoordinatesToWhereClause())
+	q.bqCoordinatesToWhereClause(add)
 	return strings.Join(clauses, " AND ")
 }
 
-func (q *Query) bqCoordinatesToWhereClause() string {
+func (q *Query) bqCoordinatesToWhereClause(add func(format string, args ...interface{})) {
 	if q.Start != nil {
 		if q.End != nil {
-			return fmt.Sprintf("v.start = %d AND %d = v.end", *q.Start, *q.End)
+			add("v.start = %d AND %d = v.end", *q.Start, *q.End)
+		} else {
+			add("v.start = %d", *q.Start)
 		}
-		return fmt.Sprintf("v.start = %d", *q.Start)
 	}
-
 	if q.StartMin != nil && q.StartMax != nil && q.EndMin != nil && q.EndMax != nil {
-		return fmt.Sprintf("%d <= v.start AND v.start <= %d AND %d <= v.end AND v.end <= %d", *q.StartMin, *q.StartMax, *q.EndMin, *q.EndMax)
+		add("%d <= v.start AND v.start <= %d AND %d <= v.end AND v.end <= %d", *q.StartMin, *q.StartMax, *q.EndMin, *q.EndMax)
 	}
-	return ""
 }
