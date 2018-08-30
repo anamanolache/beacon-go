@@ -88,11 +88,7 @@ func query(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("computing result: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	if err := writeResponse(w, exists); err != nil {
-		http.Error(w, fmt.Sprintf("writing response: %v", err), http.StatusInternalServerError)
-		return
-	}
+	writeResponse(w, exists)
 }
 
 func validateServerConfig() error {
@@ -194,7 +190,7 @@ func getFormValueInt(r *http.Request, key string) (*int64, error) {
 	return &value, nil
 }
 
-func writeResponse(w http.ResponseWriter, exists bool) error {
+func writeResponse(w http.ResponseWriter, exists bool) {
 	type beaconResponse struct {
 		XMLName struct{} `xml:"BEACONResponse"`
 		Exists  bool     `xml:"exists"`
@@ -205,8 +201,5 @@ func writeResponse(w http.ResponseWriter, exists bool) error {
 	w.Header().Set("Content-Type", "application/xml")
 	enc := xml.NewEncoder(w)
 	enc.Indent("", "  ")
-	if err := enc.Encode(resp); err != nil {
-		return fmt.Errorf("serializing response: %v", err)
-	}
-	return nil
+	enc.Encode(resp)
 }
