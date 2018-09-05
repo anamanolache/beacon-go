@@ -12,8 +12,7 @@
  * the License.
  */
 
-// Package beacon implements a GA4GH Beacon (http://ga4gh.org/#/beacon) backed
-// by the Google Genomics Variants service search API.
+// Package beacon contains an implementation of GA4GH Beacon API (http://ga4gh.org/#/beacon).
 package beacon
 
 import (
@@ -22,74 +21,64 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"strconv"
 
+	"github.com/googlegenomics/beacon-go/internal/query"
 	"google.golang.org/appengine"
 )
 
-type beaconConfig struct {
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	ApiVersion   string             `json:"apiVersion"`
-	Organization beaconOrganization `json:"organization"`
-	Datasets     string             `json:"datasets"`
+// BeaconInfo contains information about the organization owning the beacon.
+type BeaconInfo struct {
+	// ID the unique identifier of the beacon.
+	ID string `json:"id"`
+	// Name the name of the beacon.
+	Name string `json:"name"`
+	// ApiVersion the version of the GA4GH Beacon specification the API implements.
+	ApiVersion string `json:"apiVersion"`
+	// Organization information about the organization that owns the beacon.
+	Organization OrganizationInfo `json:"organization"`
+	// Datasets the ID of the allele BigQuery table to query.
+	// Must be provided in the following format: bigquery-project.dataset.table.
+	Datasets string `json:"datasets"`
 }
 
-type beaconOrganization struct {
-	ID   string `json:"id"`
+// OrganizationInfo contains information about an organization.
+type OrganizationInfo struct {
+	// ID the unique identifier of the organization.
+	ID string `json:"id"`
+	// Name the name of the organization.
 	Name string `json:"name"`
 }
 
-const (
-	projectKey = "GOOGLE_CLOUD_PROJECT"
-	bqTableKey = "GOOGLE_BIGQUERY_TABLE"
-)
-
-var (
-	projectID = os.Getenv(projectKey)
-	beacon    = beaconConfig{
-		ID:         os.Getenv("BEACON_ID"),
-		Name:       os.Getenv("BEACON_NAME"),
-		ApiVersion: os.Getenv("BEACON_API_VERSION"),
-		Organization: beaconOrganization{
-			ID:   os.Getenv("ORGANIZATION_ID"),
-			Name: os.Getenv("ORGANIZATION_NAME"),
-		},
-		Datasets: os.Getenv(bqTableKey),
-	}
-)
-
-func init() {
-	http.HandleFunc("/", aboutBeacon)
-	http.HandleFunc("/query", query)
+// BeaconAPI implements a GA4GH Beacon API (http://ga4gh.org/#/beacon) backed
+// by a Google Cloud BigQuery allele table.
+type BeaconAPI struct {
+	// BeaconInfo information about the beacon implementation.
+	BeaconInfo BeaconInfo
+	// ProjectID the GCloud project ID.
+	ProjectID string
 }
 
-func aboutBeacon(w http.ResponseWriter, r *http.Request) {
+func (api *BeaconAPI) About(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, fmt.Sprintf("HTTP method %s not supported", r.Method), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	response, err := json.Marshal(beacon)
+	response, err := json.Marshal(api.BeaconInfo)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("writing response: %v", err), http.StatusInternalServerError)
 	}
 	w.Write(response)
 }
 
-func query(w http.ResponseWriter, r *http.Request) {
-	if err := validateServerConfig(); err != nil {
-		http.Error(w, fmt.Sprintf("validating server configuration: %v", err), http.StatusInternalServerError)
-		return
-	}
-
+func (api *BeaconAPI) Query(w http.ResponseWriter, r *http.Request) {
 	request, err := parseInput(r)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("parsing input: %v", err), http.StatusBadRequest)
 		return
 	}
-	query := &Query{
+	q := &query.Query{
 		ReferenceName:  request.ReferenceName,
 		ReferenceBases: request.ReferenceBases,
 		AlternateBases: request.AlternateBases,
@@ -101,28 +90,19 @@ func query(w http.ResponseWriter, r *http.Request) {
 		EndMax:         request.EndMax,
 	}
 
-	if err := query.ValidateInput(); err != nil {
-		writeError(w, *request, http.StatusBadRequest, fmt.Sprintf("validating input: %v", err))
+	if err := q.ValidateInput(); err != nil {
+		api.writeError(w, *request, http.StatusBadRequest, fmt.Sprintf("validating input: %v", err))
 		return
 	}
 
 	ctx := appengine.NewContext(r)
-	exists, err := query.Execute(ctx, projectID, beacon.Datasets)
+	exists, err := q.Execute(ctx, api.ProjectID, api.BeaconInfo.Datasets)
+
 	if err != nil {
-		writeError(w, *request, http.StatusInternalServerError, fmt.Sprintf("computing result: %v", err))
+		api.writeError(w, *request, http.StatusInternalServerError, fmt.Sprintf("computing result: %v", err))
 		return
 	}
-	writeResponse(w, *request, exists)
-}
-
-func validateServerConfig() error {
-	if projectID == "" {
-		return fmt.Errorf("%s must be specified", projectKey)
-	}
-	if beacon.Datasets == "" {
-		return fmt.Errorf("%s must be specified", bqTableKey)
-	}
-	return nil
+	api.writeResponse(w, *request, exists)
 }
 
 type alleleRequest struct {
@@ -222,21 +202,21 @@ type beaconError struct {
 	Message string `json:"errorMessage"`
 }
 
-func writeError(w http.ResponseWriter, req alleleRequest, code int, message string) {
-	write(w, req, nil, &beaconError{
+func (api *BeaconAPI) writeError(w http.ResponseWriter, req alleleRequest, code int, message string) {
+	api.write(w, req, nil, &beaconError{
 		Code:    strconv.Itoa(code),
 		Message: message,
 	})
 }
 
-func writeResponse(w http.ResponseWriter, req alleleRequest, exists bool) {
-	write(w, req, &exists, nil)
+func (api *BeaconAPI) writeResponse(w http.ResponseWriter, req alleleRequest, exists bool) {
+	api.write(w, req, &exists, nil)
 }
 
-func write(w http.ResponseWriter, req alleleRequest, exists *bool, beaconErr *beaconError) {
+func (api *BeaconAPI) write(w http.ResponseWriter, req alleleRequest, exists *bool, beaconErr *beaconError) {
 	response := alleleResponse{
-		BeaconId:   beacon.ID,
-		ApiVersion: beacon.ApiVersion,
+		BeaconId:   api.BeaconInfo.ID,
+		ApiVersion: api.BeaconInfo.ApiVersion,
 		Request:    req,
 		Exists:     exists,
 		Error:      beaconErr,
