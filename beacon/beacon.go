@@ -25,36 +25,58 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/googlegenomics/beacon-go/internal/query"
+	"github.com/googlegenomics/beacon-go/internal/variants"
 	"google.golang.org/appengine"
 )
 
-// BeaconAPI implements a GA4GH Beacon API (http://ga4gh.org/#/beacon) backed
-// by a Google Cloud BigQuery allele table.
-type BeaconAPI struct {
-	// ApiVersion the version of the GA4GH Beacon specification the API implements.
-	ApiVersion string
-	// ProjectID the GCloud project ID.
-	ProjectID string
-	// TableID the ID of the allele BigQuery table to query.
-	// Must be provided in the following format: bigquery-project.dataset.table.
-	TableID string
-}
+const (
+	// beaconAPIVersion the version of the GA4GH Beacon specification the API implements.
+	beaconAPIVersion = "v0.0.1"
+
+	aboutDefaultPath = "/"
+	queryDefaultPath = "/query"
+)
 
 var (
 	aboutTemplate = template.Must(template.ParseFiles("about.xml"))
 )
 
-func (api *BeaconAPI) About(w http.ResponseWriter, r *http.Request) {
+// Server implements a GA4GH Beacon API (https://github.com/ga4gh-beacon/specification/blob/master/beacon.md) backed
+// by a Google Cloud BigQuery variants table.
+type Server struct {
+	// ProjectID is the GCloud project ID.
+	ProjectID string
+	// TableID is the ID of the allele BigQuery table to query.
+	// Must be provided in the following format: bigquery-project.dataset.table.
+	TableID string
+}
+
+// Export registers the beacon API endpoint with mux.
+func (server *Server) Export(mux *http.ServeMux) {
+	mux.Handle(aboutDefaultPath, forwardOrigin(server.About))
+	mux.Handle(queryDefaultPath, forwardOrigin(server.Query))
+}
+
+// About retrieves all the necessary information on the beacon and the API.
+func (api *Server) About(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, fmt.Sprintf("HTTP method %s not supported", r.Method), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml")
-	aboutTemplate.Execute(w, api)
+
+	info := struct {
+		APIVersion string
+		TableID    string
+	}{
+		APIVersion: beaconAPIVersion,
+		TableID:    api.TableID,
+	}
+	aboutTemplate.Execute(w, info)
 }
 
-func (api *BeaconAPI) Query(w http.ResponseWriter, r *http.Request) {
+// Query retrieves whether the requested allele exists in the dataset.
+func (api *Server) Query(w http.ResponseWriter, r *http.Request) {
 	query, err := parseInput(r)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("parsing input: %v", err), http.StatusBadRequest)
@@ -75,9 +97,9 @@ func (api *BeaconAPI) Query(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, exists)
 }
 
-func parseInput(r *http.Request) (*query.Query, error) {
+func parseInput(r *http.Request) (*variants.Query, error) {
 	if r.Method == "GET" {
-		var query query.Query
+		var query variants.Query
 		query.RefName = r.FormValue("chromosome")
 		query.Allele = r.FormValue("allele")
 		if err := parseFormCoordinates(r, &query); err != nil {
@@ -99,7 +121,8 @@ func parseInput(r *http.Request) (*query.Query, error) {
 		if err := json.Unmarshal(body, &params); err != nil {
 			return nil, fmt.Errorf("decoding request body: %v", err)
 		}
-		return &query.Query{
+
+		return &variants.Query{
 			RefName:  params.RefName,
 			Allele:   params.Allele,
 			Start:    params.Start,
@@ -113,7 +136,7 @@ func parseInput(r *http.Request) (*query.Query, error) {
 	return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
 }
 
-func parseFormCoordinates(r *http.Request, params *query.Query) error {
+func parseFormCoordinates(r *http.Request, params *variants.Query) error {
 	start, err := getFormValueInt(r, "start")
 	if err != nil {
 		return fmt.Errorf("parsing start: %v", err)
@@ -159,7 +182,7 @@ func getFormValueInt(r *http.Request, key string) (*int64, error) {
 	}
 	value, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing int value: %v", err)
+		return nil, fmt.Errorf("parsing value as integer: %v", err)
 	}
 	return &value, nil
 }
@@ -176,4 +199,13 @@ func writeResponse(w http.ResponseWriter, exists bool) {
 	enc := xml.NewEncoder(w)
 	enc.Indent("", "  ")
 	enc.Encode(resp)
+}
+
+type forwardOrigin func(w http.ResponseWriter, req *http.Request)
+
+func (f forwardOrigin) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if origin := req.Header.Get("Origin"); origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
+	f(w, req)
 }
