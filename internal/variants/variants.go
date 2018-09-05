@@ -1,4 +1,19 @@
-package query
+/*
+ * Copyright (C) 2018 Google Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ */
+
+// Package variants contains support for variant specific operations.
+package variants
 
 import (
 	"context"
@@ -14,23 +29,23 @@ var basesRegex = regexp.MustCompile(`^([ACGT]+|N)$`)
 
 // Query holds information about a single query against a Beacon.
 type Query struct {
-	// ReferenceName - the chromosome reference name.
+	// ReferenceName is the chromosome reference name.
 	ReferenceName string
-	// ReferenceBases - the allele reference base.
+	// ReferenceBases is the allele reference base.
 	ReferenceBases string
-	// AlternateBases - the allele alternate bases.
+	// AlternateBases is the allele alternate bases.
 	AlternateBases string
-	// Start - matches the alleles that start at this position.
+	// Start matches the alleles that start at this position.
 	Start *int64
-	// End - matches the alleles that end at this position.
+	// End matches the alleles that end at this position.
 	End *int64
-	// StartMin - matches the alleles that start at this position or higher.
+	// StartMin matches the alleles that start at this position or higher.
 	StartMin *int64
-	// StartMax - matches the alleles that start at this position or lower.
+	// StartMax matches the alleles that start at this position or lower.
 	StartMax *int64
-	// EndMin - matches the alleles that end at this position or higher.
+	// EndMin matches the alleles that end at this position or higher.
 	EndMin *int64
-	// EndMax - matches the alleles that end at this position or lower.
+	// EndMax matches the alleles that end at this position or lower.
 	EndMax *int64
 }
 
