@@ -12,7 +12,7 @@
  * the License.
  */
 
-// Package beacon contains an implementation of GA4GH Beacon API (http://ga4gh.org/#/beacon).
+// Package beacon implements a GA4GH Beacon API (https://github.com/ga4gh-beacon/specification/blob/master/beacon.md).
 package beacon
 
 import (
@@ -29,20 +29,13 @@ import (
 	"google.golang.org/appengine"
 )
 
-const (
-	// beaconAPIVersion the version of the GA4GH Beacon specification the API implements.
-	beaconAPIVersion = "v0.0.1"
-
-	aboutDefaultPath = "/"
-	queryDefaultPath = "/query"
-)
+const beaconAPIVersion = "v0.0.1"
 
 var (
 	aboutTemplate = template.Must(template.ParseFiles("about.xml"))
 )
 
-// Server implements a GA4GH Beacon API (https://github.com/ga4gh-beacon/specification/blob/master/beacon.md) backed
-// by a Google Cloud BigQuery variants table.
+// Server provides handlers for Beacon API requests.
 type Server struct {
 	// ProjectID is the GCloud project ID.
 	ProjectID string
@@ -53,8 +46,8 @@ type Server struct {
 
 // Export registers the beacon API endpoint with mux.
 func (server *Server) Export(mux *http.ServeMux) {
-	mux.Handle(aboutDefaultPath, forwardOrigin(server.About))
-	mux.Handle(queryDefaultPath, forwardOrigin(server.Query))
+	mux.Handle("/", forwardOrigin(server.About))
+	mux.Handle("/query", forwardOrigin(server.Query))
 }
 
 // About retrieves all the necessary information on the beacon and the API.
@@ -64,15 +57,10 @@ func (api *Server) About(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml")
-
-	info := struct {
-		APIVersion string
-		TableID    string
-	}{
-		APIVersion: beaconAPIVersion,
-		TableID:    api.TableID,
-	}
-	aboutTemplate.Execute(w, info)
+	aboutTemplate.Execute(w, map[string]string{
+		"APIVersion": beaconAPIVersion,
+		"TableID":    api.TableID,
+	})
 }
 
 // Query retrieves whether the requested allele exists in the dataset.
@@ -98,6 +86,7 @@ func (api *Server) Query(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseInput(r *http.Request) (*variants.Query, error) {
+
 	if r.Method == "GET" {
 		var query variants.Query
 		query.RefName = r.FormValue("chromosome")
