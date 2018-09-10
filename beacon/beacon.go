@@ -87,7 +87,8 @@ func (api *Server) Query(w http.ResponseWriter, r *http.Request) {
 
 func parseInput(r *http.Request) (*variants.Query, error) {
 
-	if r.Method == "GET" {
+	switch r.Method {
+	case "GET":
 		var query variants.Query
 		query.RefName = r.FormValue("chromosome")
 		query.Allele = r.FormValue("allele")
@@ -99,7 +100,7 @@ func parseInput(r *http.Request) (*variants.Query, error) {
 		query.Coord = coord
 
 		return &query, nil
-	} else if r.Method == "POST" {
+	case "POST":
 		var params struct {
 			RefName string `json:"chromosome"`
 			Allele  string `json:"allele"`
@@ -114,8 +115,9 @@ func parseInput(r *http.Request) (*variants.Query, error) {
 			Allele:  params.Allele,
 			Coord:   params.Coord,
 		}, nil
+	default:
+		return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
 	}
-	return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
 }
 
 func getFormValueInt(r *http.Request, key string) (*int64, error) {
