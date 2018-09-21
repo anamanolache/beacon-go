@@ -89,22 +89,24 @@ func parseInput(r *http.Request) (*variants.Query, error) {
 	switch r.Method {
 	case "GET":
 		var query variants.Query
-		query.RefName = r.FormValue("chromosome")
-		query.Allele = r.FormValue("allele")
+		query.ReferenceName = r.FormValue("referenceName")
+		query.ReferenceBases = r.FormValue("referenceBases")
+		query.AlternateBases = r.FormValue("alternateBases")
 		if err := parseFormCoordinates(r, &query); err != nil {
 			return nil, fmt.Errorf("parsing referenceBases: %v", err)
 		}
 		return &query, nil
 	case "POST":
 		var params struct {
-			RefName  string `json:"chromosome"`
-			Allele   string `json:"allele"`
-			Start    *int64 `json:"start"`
-			End      *int64 `json:"end"`
-			StartMin *int64 `json:"startMin"`
-			StartMax *int64 `json:"startMax"`
-			EndMin   *int64 `json:"endMin"`
-			EndMax   *int64 `json:"endMax"`
+			ReferenceName  string `json:"referenceName"`
+			ReferenceBases string `json:"referenceBases"`
+			AlternateBases string `json:"alternateBases"`
+			Start          *int64 `json:"start"`
+			End            *int64 `json:"end"`
+			StartMin       *int64 `json:"startMin"`
+			StartMax       *int64 ` json:"startMax"`
+			EndMin         *int64 `json:"endMin"`
+			EndMax         *int64 `json:"endMax"`
 		}
 		body, _ := ioutil.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &params); err != nil {
@@ -112,14 +114,15 @@ func parseInput(r *http.Request) (*variants.Query, error) {
 		}
 
 		return &variants.Query{
-			RefName:  params.RefName,
-			Allele:   params.Allele,
-			Start:    params.Start,
-			End:      params.End,
-			StartMin: params.StartMin,
-			StartMax: params.StartMax,
-			EndMin:   params.EndMin,
-			EndMax:   params.EndMax,
+			ReferenceName:  params.ReferenceName,
+			ReferenceBases: params.ReferenceBases,
+			AlternateBases: params.AlternateBases,
+			Start:          params.Start,
+			End:            params.End,
+			StartMin:       params.StartMin,
+			StartMax:       params.StartMax,
+			EndMin:         params.EndMin,
+			EndMax:         params.EndMax,
 		}, nil
 	default:
 		return nil, errors.New(fmt.Sprintf("HTTP method %s not supported", r.Method))
