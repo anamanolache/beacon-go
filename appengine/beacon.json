@@ -1,0 +1,9 @@
+{
+ "id" : "change.to.your.beacon.id",
+ "name" : "Change To Your Beacon Name",
+  "organization" : {
+    "id" : "changeToYourOrganizationId",
+    "name" : "Change To Your Organization Name"
+  },
+  "dataset" : "bigqueryProject.dataset.variantsTable"
+}

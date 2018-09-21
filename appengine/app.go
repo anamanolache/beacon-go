@@ -5,29 +5,19 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/googlegenomics/beacon-go/beacon"
-)
-
-const (
-	project = "GOOGLE_CLOUD_PROJECT"
-	bqTable = "GOOGLE_BIGQUERY_TABLE"
+	"github.com/googlegenomics/beacon-go/api"
 )
 
 func init() {
-	server := beacon.Server{
-		ProjectID: os.Getenv(project),
-		TableID:   os.Getenv(bqTable),
+	jsonFile, err := os.Open("beacon.json")
+	if err != nil {
+		panic(fmt.Sprintf("opening beacon json file: %v", err))
 	}
-
-	if server.ProjectID == "" {
-		panic(fmt.Sprintf("environment variable %s must be specified", project))
+	server, err := api.NewServerFromJson(os.Getenv("GOOGLE_CLOUD_PROJECT"), jsonFile)
+	if err != nil {
+		panic(fmt.Sprintf("creating a server instance: %v", err))
 	}
-	if server.TableID == "" {
-		panic(fmt.Sprintf("environment variable %s must be specified", bqTable))
-	}
-
 	mux := http.NewServeMux()
 	server.Export(mux)
-
 	http.HandleFunc("/", mux.ServeHTTP)
 }

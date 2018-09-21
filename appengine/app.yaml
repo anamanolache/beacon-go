@@ -21,4 +21,3 @@ handlers:
 
 env_variables:
 #  GOOGLE_CLOUD_PROJECT: change-to-your-project-id
-#  GOOGLE_BIGQUERY_TABLE: bigqueryProject.dataset.variantsTable
