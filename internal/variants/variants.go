@@ -19,17 +19,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
 )
 
+var basesRegex = regexp.MustCompile(`^([ACGT]+|N)$`)
+
 // Query holds information about a single query against a Beacon.
 type Query struct {
-	// RefName is the chromosome reference name.
-	RefName string
-	// Allele is the allele reference base.
-	Allele string
+	// ReferenceName is the chromosome reference name.
+	ReferenceName string
+	// ReferenceBases is the allele reference base.
+	ReferenceBases string
+	// AlternateBases is the allele alternate bases.
+	AlternateBases string
 	// Start matches the alleles that start at this position.
 	Start *int64
 	// End matches the alleles that end at this position.
@@ -75,11 +80,17 @@ func (q *Query) Execute(ctx context.Context, projectID, tableID string) (bool, e
 
 // ValidateInput validates the Query parameters meet the ga4gh beacon api requirements.
 func (q *Query) ValidateInput() error {
-	if q.RefName == "" {
-		return errors.New("missing chromosome name")
+	if q.ReferenceName == "" {
+		return errors.New("missing reference name")
 	}
-	if q.Allele == "" {
-		return errors.New("missing allele")
+	if q.ReferenceBases == "" {
+		return errors.New("missing reference bases")
+	}
+	if !basesRegex.MatchString(q.ReferenceBases) {
+		return errors.New("invalid value for reference bases")
+	}
+	if q.AlternateBases != "" && !basesRegex.MatchString(q.AlternateBases) {
+		return errors.New("invalid value for alternate bases")
 	}
 	if err := q.validateCoordinates(); err != nil {
 		return fmt.Errorf("validating coordinates: %v", err)
@@ -89,12 +100,13 @@ func (q *Query) ValidateInput() error {
 
 func (q *Query) validateCoordinates() error {
 	var precisePosition, imprecisePosition bool
-	if q.Start != nil && (q.End != nil || q.Allele != "") {
+	if q.Start != nil && (q.End != nil || q.ReferenceBases != "") {
 		precisePosition = true
 	}
 	if q.StartMin != nil && q.StartMax != nil && q.EndMin != nil && q.EndMax != nil {
 		imprecisePosition = true
 	}
+
 
 	if precisePosition && imprecisePosition {
 		return errors.New("please query either precise or imprecise position")
@@ -118,8 +130,12 @@ func (q *Query) whereClause() string {
 			add("%s='%s'", dbColumn, value)
 		}
 	}
-	simpleClause("reference_name", q.RefName)
-	simpleClause("reference_bases", q.Allele)
+
+	simpleClause("reference_name", q.ReferenceName)
+	simpleClause("reference_bases", q.ReferenceBases)
+	if q.AlternateBases != "" {
+		add(fmt.Sprintf("(SELECT count(*) FROM UNNEST(alternate_bases) AS alt WHERE alt IN ('%s') ) > 0", q.AlternateBases))
+	}
 	q.bqCoordinatesToWhereClause(add)
 	return strings.Join(clauses, " AND ")
 }
