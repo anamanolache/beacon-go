@@ -12,7 +12,7 @@
  * the License.
  */
 
-// Package beacon contains an implementation of GA4GH Beacon API (http://ga4gh.org/#/beacon).
+// Package api implements a GA4GH Beacon API (https://github.com/ga4gh-beacon/specification/blob/master/beacon.md).
 package api
 
 import (
@@ -29,16 +29,9 @@ import (
 	"google.golang.org/appengine"
 )
 
-const (
-	// beaconAPIVersion the version of the GA4GH Beacon specification the API implements.
-	beaconAPIVersion = "v0.0.1"
+const beaconAPIVersion = "v0.0.1"
 
-	aboutDefaultPath = "/"
-	queryDefaultPath = "/query"
-)
-
-// Server implements a GA4GH Beacon API (https://github.com/ga4gh-beacon/specification/blob/master/beacon.md) backed
-// by a Google Cloud BigQuery variants table.
+// Server provides handlers for Beacon API requests.
 type Server struct {
 	// BeaconInfo contains information about the beacon implementation.
 	BeaconInfo Beacon
@@ -46,6 +39,7 @@ type Server struct {
 	ProjectID string
 }
 
+// NewServerFromJson instantiates a beacon server using the provided json file.
 func NewServerFromJson(projectID string, jsonFile *os.File) (*Server, error) {
 	bytes, err := ioutil.ReadAll(jsonFile)
 	if err != nil {
@@ -67,8 +61,8 @@ func NewServerFromJson(projectID string, jsonFile *os.File) (*Server, error) {
 
 // Export registers the beacon API endpoint with mux.
 func (server *Server) Export(mux *http.ServeMux) {
-	mux.Handle(aboutDefaultPath, forwardOrigin(server.About))
-	mux.Handle(queryDefaultPath, forwardOrigin(server.Query))
+	mux.Handle("/", forwardOrigin(server.About))
+	mux.Handle("query", forwardOrigin(server.Query))
 }
 
 // About retrieves all the necessary information on the beacon and the API.
