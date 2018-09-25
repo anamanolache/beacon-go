@@ -139,7 +139,7 @@ func (q *Query) whereClause() string {
 	simpleClause("reference_name", q.ReferenceName)
 	simpleClause("reference_bases", q.ReferenceBases)
 	if q.AlternateBases != "" {
-		add(fmt.Sprintf("(SELECT count(*) FROM UNNEST(alternate_bases) AS alt WHERE alt IN ('%s') ) > 0", q.AlternateBases))
+		add(fmt.Sprintf("(SELECT count(*) FROM UNNEST(alternate_bases) AS record WHERE record.alt='%s') > 0", q.AlternateBases))
 	}
 	simpleClause("start_position", q.Start)
 	simpleClause("end_position", q.End)
