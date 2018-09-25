@@ -23,8 +23,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"os"
-
 	"github.com/googlegenomics/beacon-go/internal/variants"
 	"google.golang.org/appengine"
 )
@@ -37,26 +35,6 @@ type Server struct {
 	BeaconInfo Beacon
 	// ProjectID is the GCloud project ID.
 	ProjectID string
-}
-
-// NewServerFromJson instantiates a beacon server using the provided json file.
-func NewServerFromJson(projectID string, jsonFile *os.File) (*Server, error) {
-	bytes, err := ioutil.ReadAll(jsonFile)
-	if err != nil {
-		return nil, fmt.Errorf("reading beacon json: %v", err)
-	}
-	var beacon Beacon
-	if err := json.Unmarshal(bytes, &beacon); err != nil {
-		return nil, fmt.Errorf("parsing beacon from json: %v", err)
-	}
-	if projectID == "" {
-		return nil, fmt.Errorf("the google cloud project id mult be specified")
-	}
-	server := Server{
-		BeaconInfo: beacon,
-		ProjectID:  projectID,
-	}
-	return &server, nil
 }
 
 // Export registers the beacon API endpoint with mux.
